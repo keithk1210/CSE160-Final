@@ -59,13 +59,24 @@ for(i in 1:length(missions_df$TECHNIQUE)) {
 activites <- unique(missions_df$ACTIVITY)
 situations <- unique(missions_df$SITUATION)
 
-for (type in rescue_types) {
-  filter <- eval(parse(text = paste("missions_df$",type," == 1",sep="")))
-  print(paste(type,": ",nrow(missions_df[filter,])))
-  print(paste("Activities:",length(activities),"Activities in subset:",length(unique(missions_df[filter,]$ACTIVITY))))
-  print(paste("Situations:",length(situations),"Situations in subset:",length(unique(missions_df[filter,]$SITUATION))))
-}
+max_size <- 0
+
+#for (type in rescue_types) {
+#  filter <- eval(parse(text = paste("missions_df$",type," == 1",sep="")))
+#  max_size <- max(max_size,nrow(missions_df[filter,]))
+#  print(paste(type,": ",nrow(missions_df[filter,])))
+#  print(paste("Activities:",length(activities),"Activities in subset:",length(unique(missions_df[filter,]$ACTIVITY))))
+#  print(paste("Situations:",length(situations),"Situations in subset:",length(unique(missions_df[filter,]$SITUATION))))
+#}
 missions_df
+
+train_size <- (5/6) * nrow(missions_df)
+test_size <- nrow(missions_df) - train_size
+fold_size <- train_size/5
+
+print(paste("TRAIN SIZE:",train_size,"TEST SIZE:",test_size,"FOLD SIZE:",fold_size))
+
+
 ```
 
 ```{r}
@@ -96,11 +107,13 @@ get_acc <- function(df,form,type) {
     svm_pred_results_thresh <- ifelse(svm_pred_results > .5,1,0)                                      
     svm_tab <- table(missions_df[,type],svm_pred_results_thresh)
     
+    print(svm_tab)
+    
     accuracy <- format(sum(diag(svm_tab))/sum(svm_tab) * 100, digits = 3)
     return(accuracy)
-}, error = function(e) {
-  return(NA)
-})
+  }, error = function(e) {
+    return(NA)
+  })
   
 }
 
@@ -124,7 +137,14 @@ for(type in rescue_types) {
   
   true_df <- missions_df[true_condition,]
   false_df <- missions_df[false_condition,]
-  sample_size <- min(nrow(true_df),nrow(false_df))
+  sample_size <- fold_size/2
+  
+  if (nrow(true_df) < sample_size) {
+    sample_size <- fold_size - nrow(true_df)
+  } else {
+    sample_size <- fold_size/2
+    true_df <- true_df[sample(nrow(true_df),sample_size,replace=FALSE),]
+  }
     
   new_df <- unique(rbind(true_df,false_df[sample(nrow(false_df),sample_size,replace=FALSE),]))
 
