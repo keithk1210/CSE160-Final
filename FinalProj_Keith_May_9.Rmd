@@ -11,7 +11,7 @@ Read the .csv in
 missions_df <- read.csv(file = "./Wildland_Search_and_Rescue_Missions_by_NYS_Forest_Rangers__Beginning_2012.csv", header=TRUE)
 #clean the data by removing empty values
 missions_df <- na.omit(missions_df)
-
+print(missions_df)
 ```
 
 using the df, create the rows needed for each rescue method
@@ -59,15 +59,17 @@ for(i in 1:length(missions_df$TECHNIQUE)) {
 activites <- unique(missions_df$ACTIVITY)
 situations <- unique(missions_df$SITUATION)
 
-max_size <- 0
+list_for_median <- c()
 
-#for (type in rescue_types) {
-#  filter <- eval(parse(text = paste("missions_df$",type," == 1",sep="")))
-#  max_size <- max(max_size,nrow(missions_df[filter,]))
-#  print(paste(type,": ",nrow(missions_df[filter,])))
-#  print(paste("Activities:",length(activities),"Activities in subset:",length(unique(missions_df[filter,]$ACTIVITY))))
-#  print(paste("Situations:",length(situations),"Situations in subset:",length(unique(missions_df[filter,]$SITUATION))))
-#}
+for (type in rescue_types) {
+  filter <- eval(parse(text = paste("missions_df$",type," == 1",sep="")))
+  print(paste(type,": ",nrow(missions_df[filter,])))
+  print(paste("Activities:",length(activities),"Activities in subset:",length(unique(missions_df[filter,]$ACTIVITY))))
+  print(paste("Situations:",length(situations),"Situations in subset:",length(unique(missions_df[filter,]$SITUATION))))
+  
+  list_for_median <- c(list_for_median,nrow(missions_df[filter,]))
+  
+}
 missions_df
 
 train_size <- (5/6) * nrow(missions_df)
@@ -76,7 +78,12 @@ fold_size <- train_size/5
 
 print(paste("TRAIN SIZE:",train_size,"TEST SIZE:",test_size,"FOLD SIZE:",fold_size))
 
+median_size <- as.integer(mean(list_for_median))
+fold_size <- median_size
+print(paste("Median size",median_size))
 
+train_df <- missions_df[sample(nrow(missions_df),train_size,replace=FALSE),]
+test_df <- missions_df[sample(nrow(missions_df),test_size,replace=FALSE),]
 ```
 
 ```{r}
@@ -102,18 +109,17 @@ get_acc <- function(df,form,type) {
   result <- tryCatch({
     model <- glm(formula = form,data=df,family=binomial)
     
-    svm_pred_results <- predict(model,newdata = missions_df)
+    svm_pred_results <- predict(model,newdata = test_df)
     
     svm_pred_results_thresh <- ifelse(svm_pred_results > .5,1,0)                                      
-    svm_tab <- table(missions_df[,type],svm_pred_results_thresh)
-    
+    svm_tab <- table(test_df[,type],svm_pred_results_thresh)
     print(svm_tab)
     
     accuracy <- format(sum(diag(svm_tab))/sum(svm_tab) * 100, digits = 3)
     return(accuracy)
-  }, error = function(e) {
-    return(NA)
-  })
+}, error = function(e) {
+  return(NA)
+})
   
 }
 
@@ -123,7 +129,7 @@ for(type in rescue_types) {
     next
   }
   
-  colname <- paste("missions_df$",type)
+  colname <- paste("train_df$",type)
 
   #combined_df <- missions_df[0,]
   
@@ -135,8 +141,9 @@ for(type in rescue_types) {
   true_condition <- eval(parse(text = paste(colname," == 1",sep="")))
   false_condition <- eval(parse(text = paste(colname," == 0",sep="")))
   
-  true_df <- missions_df[true_condition,]
-  false_df <- missions_df[false_condition,]
+  true_df <- train_df[true_condition,]
+  false_df <- train_df[false_condition,]
+  
   sample_size <- fold_size/2
   
   if (nrow(true_df) < sample_size) {
@@ -145,20 +152,33 @@ for(type in rescue_types) {
     sample_size <- fold_size/2
     true_df <- true_df[sample(nrow(true_df),sample_size,replace=FALSE),]
   }
+  
+  false_df <- false_df[sample(nrow(false_df),sample_size,replace=FALSE),]
     
-  new_df <- unique(rbind(true_df,false_df[sample(nrow(false_df),sample_size,replace=FALSE),]))
+  new_df <- unique(rbind(true_df,false_df))
 
   form <- NA
   
-  if (length(unique(true_df$SITUATION)) == length(situations)) {
-    train_on_situation <- TRUE
+  #if (length(unique(true_df$SITUATION)) == length(situations)) {
+  #  train_on_situation <- TRUE
+  #}
+
+  if (train_on_situation) {
+    form <- gsub(" ","",paste(type_new," ~ SITUATION + LOCATION.FOUND.LATITUDE + LOCATION.FOUND.LONGITUDE + LOCATION.FOUND.ELEVATION + NUMBER.OF.RANGERS.INVOLVED"));
+  } else {
+    form <- gsub(" ","",paste(type_new," ~ LOCATION.FOUND.LATITUDE + LOCATION.FOUND.LONGITUDE + LOCATION.FOUND.ELEVATION + NUMBER.OF.RANGERS.INVOLVED"));
   }
   
-  if (train_on_situation) {
-    form <- gsub(" ","",paste(type_new," ~ SITUATION + LOCATION.FOUND.LATITUDE + LOCATION.FOUND.LONGITUDE + LOCATION.FOUND.ELEVATION"));
-  } else {
-    form <- gsub(" ","",paste(type_new," ~ LOCATION.FOUND.LATITUDE + LOCATION.FOUND.LONGITUDE + LOCATION.FOUND.ELEVATION"));
-  }
+  suppressWarnings({
+    new_df$LOCATION.FOUND.LATITUDE <- new_df$LOCATION.FOUND.LATITUDE + rnorm(50)
+    new_df$LOCATION.FOUND.LONGITUDE <- new_df$LOCATION.FOUND.LONGITUDE + rnorm(50)
+    new_df$LOCATION.FOUND.ELEVATION <- new_df$LOCATION.FOUND.ELEVATION + rnorm(50)
+    new_df$NUMBER.OF.RANGERS.INVOLVED <- new_df$NUMBER.OF.RANGERS.INVOLVED + rnorm(50)
+  })
+  
+  
+  
+  
   
   cat(paste("\nNROW: ",nrow(new_df),"TRUE:",nrow(true_df),"FALSE:",nrow(false_df),"\n"))
   cat(sprintf("%-50s\t", type),paste(get_acc(new_df,form,type),"%"),"\n")
