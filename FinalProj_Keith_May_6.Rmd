@@ -1,0 +1,177 @@
+---
+title: "CSE160-FinalProject"
+author: "Kevin Cawood"
+date: "2024-05-04"
+output: html_document
+---
+
+Read the .csv in
+
+```{r}
+missions_df <- read.csv(file = "./Wildland_Search_and_Rescue_Missions_by_NYS_Forest_Rangers__Beginning_2012.csv", header=TRUE)
+#clean the data by removing empty values
+missions_df <- na.omit(missions_df)
+
+```
+
+using the df, create the rows needed for each rescue method
+
+```{r}
+
+fix_str <- function(x) {
+  return (gsub("/",".OR.",gsub(" ",".",toupper(x))));
+}
+
+#get all unique rescue types
+tmp_types <- unique(missions_df$TECHNIQUE)
+tmp_types <- strsplit(tmp_types, split = "; ")
+tmp_types <- na.omit(tmp_types)
+rescue_types <- c()
+
+for(i in 1:length(tmp_types)) {
+  for(j in 1:length(tmp_types[[i]])) {
+    rescue_types <- append(rescue_types, tmp_types[[i]][j])
+  }
+}
+
+
+rescue_types <- na.omit(rescue_types)
+rescue_types <- unique(rescue_types)
+rescue_types <- fix_str(rescue_types)
+
+
+#create new columns in missions_df
+for(i in 1:length(rescue_types)) {
+  missions_df[,rescue_types[i]] <- 0L
+}
+
+#going through all fields, assign T/F to new col based on $TECHNIQUE
+for(i in 1:length(missions_df$TECHNIQUE)) {
+  types <- strsplit(missions_df$TECHNIQUE[i], split = "; ")
+  for(j in 1:length(types)) {
+    missions_df[i,fix_str(types[[j]])] <- 1L
+  }
+}
+
+#remove old col
+#missions_df$TECHNIQUE <- NULL
+
+activites <- unique(missions_df$ACTIVITY)
+situations <- unique(missions_df$SITUATION)
+
+for (type in rescue_types) {
+  filter <- eval(parse(text = paste("missions_df$",type," == 1",sep="")))
+  print(paste(type,": ",nrow(missions_df[filter,])))
+  print(paste("Activities:",length(activities),"Activities in subset:",length(unique(missions_df[filter,]$ACTIVITY))))
+  print(paste("Situations:",length(situations),"Situations in subset:",length(unique(missions_df[filter,]$SITUATION))))
+}
+
+```
+
+```{r}
+library(e1071)
+library(dplyr)
+
+#factorization
+missions_df$INCIDENT.REGION <- as.factor(missions_df$INCIDENT.REGION)
+missions_df$ACTIVITY <- as.factor(missions_df$ACTIVITY)
+missions_df$SITUATION <- as.factor(missions_df$SITUATION)
+missions_df$SUBJECT.GENDER <- as.factor(missions_df$SUBJECT.GENDER)
+
+#missions_df$Carry_out_by_foot <- as.factor(missions_df$Carry_out_by_foot)
+
+#missions_df
+
+#YOUR CODE GOES HERE
+
+#rescue_types
+
+get_acc <- function(df,form,type) {
+  
+  result <- tryCatch({
+    model <- glm(formula = form,data=df,family=binomial)
+    
+    svm_pred_results <- predict(model,newdata = missions_df)
+    
+    svm_pred_results_thresh <- ifelse(svm_pred_results > .5,1,0)                                      
+    svm_tab <- table(missions_df[,type],svm_pred_results_thresh)
+    
+    accuracy <- format(sum(diag(svm_tab))/sum(svm_tab) * 100, digits = 3)
+    return(accuracy)
+}, error = function(e) {
+  return(NA)
+})
+  
+}
+
+for(type in rescue_types) {
+  
+  if (type == "EVACUATION.BY.ANIMAL") {
+    next
+  }
+  
+  type_new <- gsub(" ","",type)
+
+  colname <- gsub(" ","",paste("missions_df$",type))
+  
+  dfs <- list()
+  
+  combined_df <- missions_df[0,]
+  
+  print(paste("SIZE OF COMBINED DF HERE:",nrow(combined_df)))
+  
+  for (activity in activities) {
+    
+    true_condition <- eval(parse(text = paste(colname," == 1 & missions_df$ACTIVITY == '",activity,"'",sep="")))
+    false_condition <- eval(parse(text = paste(colname," == 0 & missions_df$ACTIVITY == '",activity,"'",sep="")))
+    
+    true_df <- missions_df[true_condition,]
+    false_df <- missions_df[false_condition,]
+    sample_size <- min(nrow(true_df),nrow(false_df))
+    
+    new_df <- rbind(true_df,false_df[sample(nrow(false_df),sample_size,replace=FALSE),])
+    
+    combined_df <- unique(rbind(combined_df,new_df))
+  }
+  
+  for (situation in situations) {
+    
+    true_condition <- eval(parse(text = paste(colname," == 1 & missions_df$SITUATION == '",situation,"'",sep="")))
+    false_condition <- eval(parse(text = paste(colname," == 0 & missions_df$SITUATION == '",situation,"'",sep="")))
+    
+    true_df <- missions_df[true_condition,]
+    false_df <- missions_df[false_condition,]
+    n_true <- nrow(true_df)
+    
+    if (n_true > nrow(false_df)) {
+      n_true = nrow(false_df)
+    }
+    
+    new_df <- rbind(true_df,false_df[sample(nrow(false_df),n_true,replace=FALSE),])
+    
+    combined_df <- unique(rbind(combined_df,new_df))
+  }
+  form <- NA
+  
+  if (nrow(combined_df) > 2000) {
+    form <- gsub(" ","",paste(type_new," ~ ACTIVITY + SITUATION + LOCATION.FOUND.LATITUDE + LOCATION.FOUND.LONGITUDE + LOCATION.FOUND.ELEVATION"));
+  } else {
+    form <- gsub(" ","",paste(type_new," ~ LOCATION.FOUND.LATITUDE + LOCATION.FOUND.LONGITUDE + LOCATION.FOUND.ELEVATION"));
+  }
+  
+  cat(paste("\nNROW: ",nrow(combined_df),"\n"))
+  cat(sprintf("%-50s\t", type),paste(get_acc(combined_df,form,type),"%"),"\n")
+}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+```
