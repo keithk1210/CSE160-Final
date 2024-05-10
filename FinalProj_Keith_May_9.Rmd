@@ -79,7 +79,7 @@ fold_size <- train_size/5
 print(paste("TRAIN SIZE:",train_size,"TEST SIZE:",test_size,"FOLD SIZE:",fold_size))
 
 median_size <- as.integer(mean(list_for_median))
-fold_size <- median_size
+
 print(paste("Median size",median_size))
 
 train_df <- missions_df[sample(nrow(missions_df),train_size,replace=FALSE),]
@@ -104,84 +104,98 @@ missions_df$SUBJECT.GENDER <- as.factor(missions_df$SUBJECT.GENDER)
 
 #rescue_types
 
-get_acc <- function(df,form,type) {
+get_acc <- function(train,test,form,type) {
   
   result <- tryCatch({
-    model <- glm(formula = form,data=df,family=binomial)
+    #suppressWarnings({
+      model <- glm(formula = form,data=train,family=binomial)
     
-    svm_pred_results <- predict(model,newdata = test_df)
+    svm_pred_results <- predict(model,newdata = test)
     
     svm_pred_results_thresh <- ifelse(svm_pred_results > .5,1,0)                                      
-    svm_tab <- table(test_df[,type],svm_pred_results_thresh)
-    print(svm_tab)
+    svm_tab <- table(test[,type],svm_pred_results_thresh)
+    #print(svm_tab)
     
-    accuracy <- format(sum(diag(svm_tab))/sum(svm_tab) * 100, digits = 3)
+    accuracy <- sum(diag(svm_tab))/sum(svm_tab) * 100
+      
+    #})
+    
     return(accuracy)
 }, error = function(e) {
+  print(e)
   return(NA)
 })
   
 }
 
+k <- 5
+
+
 for(type in rescue_types) {
   
-  if (type == "EVACUATION.BY.ANIMAL") {
+  colname <- paste("train_df$",type)
+  
+  avg_acc <- 0
+  
+  true_condition <- eval(parse(text = paste(colname," == 1",sep="")))
+  false_condition <- eval(parse(text = paste(colname," == 0",sep="")))
+    
+  true_df <- train_df[true_condition,]
+  
+  if (nrow(true_df) < 500) {
     next
   }
   
-  colname <- paste("train_df$",type)
-
-  #combined_df <- missions_df[0,]
-  
-  #print(paste("SIZE OF COMBINED DF HERE:",nrow(combined_df)))
-  
-  train_on_situation <- FALSE
-  
-    
-  true_condition <- eval(parse(text = paste(colname," == 1",sep="")))
-  false_condition <- eval(parse(text = paste(colname," == 0",sep="")))
-  
-  true_df <- train_df[true_condition,]
   false_df <- train_df[false_condition,]
   
-  sample_size <- fold_size/2
+  sample_size <- nrow(true_df)
   
-  if (nrow(true_df) < sample_size) {
-    sample_size <- fold_size - nrow(true_df)
-  } else {
-    sample_size <- fold_size/2
-    true_df <- true_df[sample(nrow(true_df),sample_size,replace=FALSE),]
+  if (nrow(false_df) < nrow(true_df)) {
+    sample_size <- nrow(false_df)
   }
+  
   
   false_df <- false_df[sample(nrow(false_df),sample_size,replace=FALSE),]
-    
+      
   new_df <- unique(rbind(true_df,false_df))
-
-  form <- NA
+  new_df <- new_df[sample(nrow(new_df)),]
   
-  #if (length(unique(true_df$SITUATION)) == length(situations)) {
-  #  train_on_situation <- TRUE
-  #}
-
-  if (train_on_situation) {
-    form <- gsub(" ","",paste(type_new," ~ SITUATION + LOCATION.FOUND.LATITUDE + LOCATION.FOUND.LONGITUDE + LOCATION.FOUND.ELEVATION + NUMBER.OF.RANGERS.INVOLVED"));
-  } else {
-    form <- gsub(" ","",paste(type_new," ~ LOCATION.FOUND.LATITUDE + LOCATION.FOUND.LONGITUDE + LOCATION.FOUND.ELEVATION + NUMBER.OF.RANGERS.INVOLVED"));
+  size <- (floor(nrow(new_df)/k))
+  
+  
+  print(paste(type,': true:',nrow(true_df),"false:",nrow(false_df),"size:",nrow(new_df)))
+  
+  for (i in 0:(k-1)) {
+    
+    test_start = i * ( size)
+    test_end = (i+1) * ( size)
+    
+    test <- new_df[test_start:test_end, ]
+    train <- new_df[-c(test_start:test_end), ]
+    
+    
+  
+    form <- NA
+    
+    #if (length(unique(true_df$SITUATION)) == length(situations)) {
+    #  train_on_situation <- TRUE
+    #}
+  
+    form <- gsub(" ","",paste(type_new," ~ LOCATION.FOUND.ELEVATION"));
+    
+    
+    #suppressWarnings({
+    #  train$NUMBER.OF.RANGERS.INVOLVED <- train$NUMBER.OF.RANGERS.INVOLVED + as.integer(rnorm(50))
+    #})
+    
+    acc <- get_acc(train,test,form,type)
+    avg_acc <- avg_acc + acc
+    print(paste("acc:",acc,"RANGE:",test_start,"-",test_end,"i:",i))
+  
   }
   
-  suppressWarnings({
-    new_df$LOCATION.FOUND.LATITUDE <- new_df$LOCATION.FOUND.LATITUDE + rnorm(50)
-    new_df$LOCATION.FOUND.LONGITUDE <- new_df$LOCATION.FOUND.LONGITUDE + rnorm(50)
-    new_df$LOCATION.FOUND.ELEVATION <- new_df$LOCATION.FOUND.ELEVATION + rnorm(50)
-    new_df$NUMBER.OF.RANGERS.INVOLVED <- new_df$NUMBER.OF.RANGERS.INVOLVED + rnorm(50)
-  })
-  
-  
-  
-  
-  
-  cat(paste("\nNROW: ",nrow(new_df),"TRUE:",nrow(true_df),"FALSE:",nrow(false_df),"\n"))
-  cat(sprintf("%-50s\t", type),paste(get_acc(new_df,form,type),"%"),"\n")
+  #cat(paste("\nNROW: ",nrow(new_df),"TRUE:",nrow(true_df),"FALSE:",nrow(false_df),"\n"))
+  cat(sprintf("%-50s\t", type),paste(format(avg_acc/k,digits=3),"%"),"\n")
 }
 
 ```
